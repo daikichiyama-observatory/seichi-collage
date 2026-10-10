@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>圣地巡礼拼图</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">SEICHI COLLAGE</p>
+          <h1>圣地巡礼拼图</h1>
+          <p class="subtitle">选好画面，调整取景，导出对比图。</p>
+        </div>
+        <span class="local-badge">离线处理 · 图片留在本机</span>
+      </header>
+
+      <main>
+        <div class="editors">
+          <section class="card editor-card" aria-labelledby="anime-title">
+            <div class="section-heading">
+              <div class="step">01</div>
+              <div class="heading-copy">
+                <h2 id="anime-title">动画 / 漫画</h2>
+                <p>裁出要和实景对比的部分</p>
+              </div>
+            </div>
+            <div class="toolbar">
+              <label class="button button-primary" for="anime-input">选择图片</label>
+              <input id="anime-input" class="visually-hidden" type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.tif,.tiff,image/jpeg,image/png,image/webp,image/heic,image/heif,image/tiff">
+              <button id="draw-crop" class="button" type="button" disabled>框选区域</button>
+              <button id="reset-crop" class="button button-quiet" type="button" disabled>使用整图</button>
+            </div>
+            <div id="anime-drop" class="image-well image-well-anime" aria-label="动画或漫画图片放置区">
+              <div id="anime-empty" class="empty-state">
+                <div class="empty-icon" aria-hidden="true">▧</div>
+                <strong>拖入动画截图或漫画图片</strong>
+                <span>也可以点击“选择图片”</span>
+              </div>
+              <canvas id="anime-canvas" class="edit-canvas hidden" aria-label="动画图片裁切区域"></canvas>
+            </div>
+            <div class="meta-line"><span id="anime-meta">尚未导入图片</span><span id="crop-meta"></span></div>
+            <p class="hint">点击“框选区域”后在图上拖出选区；拖动选区可移动，拖动四角可调整。</p>
+          </section>
+
+          <section class="card editor-card" aria-labelledby="photo-title">
+            <div class="section-heading">
+              <div class="step">02</div>
+              <div class="heading-copy">
+                <h2 id="photo-title">实景照片</h2>
+                <p>显示框会匹配左侧裁切区域</p>
+              </div>
+            </div>
+            <div class="toolbar">
+              <label class="button button-primary" for="photo-input">选择照片</label>
+              <input id="photo-input" class="visually-hidden" type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.tif,.tiff,image/jpeg,image/png,image/webp,image/heic,image/heif,image/tiff">
+              <button id="reset-photo" class="button button-quiet" type="button" disabled>重置取景</button>
+            </div>
+            <div id="photo-drop" class="image-well image-well-photo" aria-label="实景照片放置区">
+              <div id="photo-empty" class="empty-state">
+                <div class="empty-icon" aria-hidden="true">▤</div>
+                <strong>拖入实景照片</strong>
+                <span>导入后拖动照片，滚轮缩放</span>
+              </div>
+              <canvas id="photo-canvas" class="edit-canvas hidden" aria-label="实景照片取景区域"></canvas>
+            </div>
+            <div class="zoom-row">
+              <label for="photo-zoom">缩放</label>
+              <input id="photo-zoom" type="range" min="1" max="6" step="0.01" value="1" disabled>
+              <output id="zoom-value" for="photo-zoom">100%</output>
+            </div>
+            <div class="meta-line"><span id="photo-meta">尚未导入图片</span></div>
+            <p class="hint">缩放保持原始比例。画框外的部分只会被裁掉，不会修改照片文件。</p>
+          </section>
+        </div>
+
+        <div class="lower-grid">
+          <section class="card settings-card" aria-labelledby="settings-title">
+            <div class="section-heading compact">
+              <div class="step">03</div>
+              <div class="heading-copy">
+                <h2 id="settings-title">拼接设置</h2>
+                <p>选择动画图在成品中的位置</p>
+              </div>
+            </div>
+            <div class="setting-group">
+              <span class="setting-label">动画图位置</span>
+              <div class="position-grid" role="group" aria-label="动画图位置">
+                <button type="button" class="position-button active" data-position="left" aria-pressed="true">左侧</button>
+                <button type="button" class="position-button" data-position="right" aria-pressed="false">右侧</button>
+                <button type="button" class="position-button" data-position="top" aria-pressed="false">上方</button>
+                <button type="button" class="position-button" data-position="bottom" aria-pressed="false">下方</button>
+              </div>
+            </div>
+            <div class="setting-group border-settings">
+              <div class="range-setting">
+                <label for="outer-border">外边框</label>
+                <input id="outer-border" type="range" min="0" max="80" step="1" value="0">
+                <output id="outer-value" for="outer-border">0 px</output>
+              </div>
+              <div class="range-setting">
+                <label for="divider">中间分隔</label>
+                <input id="divider" type="range" min="0" max="80" step="1" value="0">
+                <output id="divider-value" for="divider">0 px</output>
+              </div>
+              <div class="color-setting">
+                <label for="border-color">边框颜色</label>
+                <input id="border-color" type="color" value="#ffffff">
+              </div>
+            </div>
+          </section>
+
+          <section class="card preview-card" aria-labelledby="preview-title">
+            <div class="preview-head">
+              <div class="section-heading compact">
+                <div class="step">04</div>
+                <div class="heading-copy">
+                  <h2 id="preview-title">成品预览</h2>
+                  <p id="export-size">导入两张图片后显示</p>
+                </div>
+              </div>
+              <div class="export-actions">
+                <button id="export-png" class="button button-primary" type="button" disabled>导出 PNG</button>
+                <button id="export-jpeg" class="button" type="button" disabled>导出 JPEG</button>
+              </div>
+            </div>
+            <div class="preview-well">
+              <span id="preview-empty">成品会显示在这里</span>
+              <canvas id="preview-canvas" class="hidden" aria-label="拼接成品预览"></canvas>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <footer>
+        <p>导入信息显示的是浏览器实际收到的文件。若从 Mac“照片”拖入后像素尺寸明显偏小，请先从“照片”导出大尺寸图片。</p>
+        <p id="status" role="status" aria-live="polite"></p>
+      </footer>
+    </div>
+  </body>
+</html>
