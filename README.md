@@ -17,6 +17,10 @@
 
 不应直接将私有仓库改为公开。代码仓库可保持私有；网页地址的访问范围由所选部署方式单独决定。
 
+### 私人试用（Tailscale）
+
+Mac 和 iPhone 安装 Tailscale，并登录同一个 tailnet。在 Mac 上运行 `bash private-preview.sh`，按终端显示的私人 HTTPS 地址在 iPhone Safari 打开，然后添加到主屏幕。脚本只复制网页必需文件到临时目录，通过 Mac 本机服务及 Tailscale Serve 提供访问，不会分享 `.git` 文件夹，也不会启用公开的 Tailscale Funnel。保持终端和 Mac 开机；按 Ctrl+C 会关闭本次预览。已缓存的网页可能离线打开，但应保持 Mac 可访问以便稳定使用和获取更新。
+
 导入后会显示浏览器实际收到的图片像素尺寸和文件大小。若从 macOS“照片”App 直接拖入的图片分辨率过低，请先在“照片”中导出大尺寸图片，再从 Finder 拖入。
 
 目前支持浏览器能够解码的 JPEG、PNG、WebP 和 HEIC/HEIF 图片；格式支持取决于所用浏览器。暂不支持 GIF 动画、视频及透视校正。
