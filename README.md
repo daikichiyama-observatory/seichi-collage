@@ -28,6 +28,19 @@
 
 托管只维护构建副本，源码仍维护在原来的一个 GitHub 仓库中。`dist/` 和 `releases/` 不纳入 Git。
 
+## GitHub Pages 部署
+
+网页可以直接从同一个私有仓库的 `main` 分支根目录发布，不需要额外的构建工作流。
+
+1. 打开仓库的 [Settings → Pages](https://github.com/daikichiyama-observatory/seichi-collage/settings/pages)。
+2. 在 **Build and deployment → Source** 中选择 **Deploy from a branch**。
+3. 在 **Branch** 中选择 **main**、**/(root)**，点 **Save**。
+4. 等待 GitHub 显示已发布地址，再在 iPhone Safari 中打开；如果提供 **Enforce HTTPS** 选项，请保持开启。
+
+此后推送到 `main` 会自动更新网页。根目录中的 `.nojekyll` 让 GitHub 直接提供现有 HTML、JS 和图片文件。
+
+如果 Pages 设置页提示升级方案，说明当前方案不能从私有仓库发布 Pages；保持仓库私有，使用支持该功能的方案或 NAS 部署。
+
 ## 格式与画质
 
 导入后会显示浏览器实际收到的图片尺寸和大小。Mac“照片”直接拖入网页如果只得到小图，可先拖到访达，再把文件拖入网页。
