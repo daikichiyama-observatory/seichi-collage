@@ -16,6 +16,20 @@ const els = {
   status: $("status"),
 };
 
+const mobileQuery = window.matchMedia("(max-width: 700px), (pointer: coarse) and (max-height: 550px)");
+const mobile = {
+  stage: $("mobile-stage"), board: $("mobile-board"), canvas: $("mobile-canvas"),
+  animeEmpty: $("mobile-anime-empty"), photoEmpty: $("mobile-photo-empty"),
+  anime: $("mobile-anime"), photo: $("mobile-photo"), layout: $("mobile-layout"),
+  layoutLabel: $("mobile-layout-label"), layoutIcon: $("mobile-layout-icon"),
+  settings: $("mobile-settings"), export: $("mobile-export"),
+  hint: $("mobile-hint"), status: $("mobile-status"), outputSize: $("mobile-export-size"),
+  zoom: $("mobile-zoom"), zoomValue: $("mobile-zoom-value"), resetPhoto: $("mobile-reset-photo"),
+  cropSheet: $("crop-sheet"), settingsSheet: $("settings-sheet"), exportSheet: $("export-sheet"),
+};
+let mobileSpec = null;
+let lastMobilePhotoGesture = -Infinity;
+
 const state = {
   anime: null,
   photo: null,
@@ -23,13 +37,12 @@ const state = {
   photoZoom: 1,
   photoOffsetX: 0,
   photoOffsetY: 0,
-  position: "left",
+  position: mobileQuery.matches && window.innerHeight > window.innerWidth ? "top" : "left",
   outerBorder: 0,
   divider: 0,
   borderColor: "#ffffff",
   drawMode: false,
   animeDrag: null,
-  photoDrag: null,
   loadSerial: { anime: 0, photo: 0 },
 };
 
@@ -40,6 +53,9 @@ function clamp(value, min, max) {
 function setStatus(message, error = false) {
   els.status.textContent = message;
   els.status.classList.toggle("error", error);
+  mobile.status.textContent = message;
+  mobile.status.classList.toggle("error", error);
+  for (const notice of document.querySelectorAll(".sheet-error")) notice.textContent = error ? message : "";
 }
 
 function fileSize(bytes) {
@@ -102,6 +118,7 @@ async function importFile(role, file) {
     }
     refreshAll();
     setStatus(`${role === "anime" ? "动画图" : "实景图"}已导入：${source.width} × ${source.height} px`);
+    if (role === "anime" && mobileQuery.matches) openSheet(mobile.cropSheet);
   } catch (error) {
     if (serial === state.loadSerial[role]) setStatus(error.message, true);
   }
@@ -205,13 +222,13 @@ function rectBetween(a, b) {
 }
 
 els.animeCanvas.addEventListener("pointerdown", (event) => {
-  if (!state.anime || event.button !== 0) return;
+  if (!state.anime || state.animeDrag || event.button !== 0) return;
   event.preventDefault();
   const point = pixelPoint(event, els.animeCanvas, state.anime.width, state.anime.height);
   const corner = state.drawMode ? null : cornerAt(point, event.pointerType);
   const mode = state.drawMode ? "draw" : corner ? "resize" : insideCrop(point) ? "move" : "draw";
   state.animeDrag = {
-    mode, start: point, original: { ...state.crop }, anchor: corner && corner.anchor,
+    mode, pointerId: event.pointerId, start: point, original: { ...state.crop }, anchor: corner && corner.anchor,
   };
   if (mode === "draw") state.crop = { x: point.x, y: point.y, w: 0, h: 0 };
   if (mode === "move") els.animeCanvas.classList.add("moving");
@@ -221,7 +238,7 @@ els.animeCanvas.addEventListener("pointerdown", (event) => {
 
 els.animeCanvas.addEventListener("pointermove", (event) => {
   const drag = state.animeDrag;
-  if (!drag || !state.anime) return;
+  if (!drag || !state.anime || event.pointerId !== drag.pointerId) return;
   const point = pixelPoint(event, els.animeCanvas, state.anime.width, state.anime.height);
   if (drag.mode === "draw") {
     state.crop = rectBetween(drag.start, point);
@@ -239,9 +256,9 @@ els.animeCanvas.addEventListener("pointermove", (event) => {
   refreshAll();
 });
 
-function finishAnimeDrag() {
+function finishAnimeDrag(event) {
   const drag = state.animeDrag;
-  if (!drag) return;
+  if (!drag || (event && event.pointerId !== drag.pointerId)) return;
   if (state.crop.w < 12 || state.crop.h < 12) state.crop = drag.original;
   state.animeDrag = null;
   els.animeCanvas.classList.remove("moving");
@@ -265,6 +282,8 @@ function resetPhotoView() {
   state.photoOffsetY = 0;
   els.photoZoom.value = "1";
   els.zoomValue.value = "100%";
+  mobile.zoom.value = "1";
+  mobile.zoomValue.value = "100%";
 }
 
 function photoDrawSize(frame) {
@@ -284,7 +303,7 @@ function clampPhotoOffset() {
   state.photoOffsetY = clamp(state.photoOffsetY, -(size.height - frame.height) / 2, (size.height - frame.height) / 2);
 }
 
-function setPhotoZoom(next, focalPoint) {
+function setPhotoZoom(next, focalPoint, render = true) {
   if (!state.photo) return;
   const frame = getFrame();
   const before = photoDrawSize(frame);
@@ -300,8 +319,12 @@ function setPhotoZoom(next, focalPoint) {
   clampPhotoOffset();
   els.photoZoom.value = String(state.photoZoom);
   els.zoomValue.value = `${Math.round(state.photoZoom * 100)}%`;
-  renderPhoto();
-  renderPreview();
+  mobile.zoom.value = String(state.photoZoom);
+  mobile.zoomValue.value = `${Math.round(state.photoZoom * 100)}%`;
+  if (render) {
+    renderPhoto();
+    renderPreview();
+  }
 }
 
 els.photoZoom.addEventListener("input", () => setPhotoZoom(Number(els.photoZoom.value)));
@@ -311,94 +334,94 @@ els.resetPhoto.addEventListener("click", () => {
   renderPreview();
 });
 
-const photoPointers = new Map();
-let pinchDistance = 0;
-
-function pointerMidpoint() {
-  const [a, b] = [...photoPointers.values()];
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-}
-
-function pointerDistance() {
-  const [a, b] = [...photoPointers.values()];
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-els.photoCanvas.addEventListener("pointerdown", (event) => {
-  if (!state.photo || event.button !== 0) return;
-  event.preventDefault();
-  photoPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-  if (photoPointers.size === 1) {
-    state.photoDrag = {
-      clientX: event.clientX, clientY: event.clientY,
-      offsetX: state.photoOffsetX, offsetY: state.photoOffsetY,
-    };
-  } else if (photoPointers.size === 2) {
-    state.photoDrag = null;
-    pinchDistance = pointerDistance();
-  }
-  els.photoCanvas.classList.add("moving");
-  els.photoCanvas.setPointerCapture(event.pointerId);
-});
-
-els.photoCanvas.addEventListener("pointermove", (event) => {
-  if (!photoPointers.has(event.pointerId)) return;
-  photoPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+function photoPoint(event, canvas) {
   const frame = getFrame();
-  if (photoPointers.size === 2) {
-    const distance = pointerDistance();
-    if (pinchDistance > 0 && distance > 0) {
-      const midpoint = pointerMidpoint();
-      const focus = pixelPoint({ clientX: midpoint.x, clientY: midpoint.y }, els.photoCanvas, frame.width, frame.height);
-      setPhotoZoom(state.photoZoom * distance / pinchDistance, focus);
-    }
-    pinchDistance = distance;
-    return;
-  }
-  if (!state.photoDrag) return;
-  const rect = els.photoCanvas.getBoundingClientRect();
-  state.photoOffsetX = state.photoDrag.offsetX + (event.clientX - state.photoDrag.clientX) * frame.width / rect.width;
-  state.photoOffsetY = state.photoDrag.offsetY + (event.clientY - state.photoDrag.clientY) * frame.height / rect.height;
-  clampPhotoOffset();
-  renderPhoto();
-  renderPreview();
-});
-
-function finishPhotoDrag(event) {
-  photoPointers.delete(event.pointerId);
-  if (photoPointers.size === 1) {
-    const pointer = [...photoPointers.values()][0];
-    state.photoDrag = {
-      clientX: pointer.x, clientY: pointer.y,
-      offsetX: state.photoOffsetX, offsetY: state.photoOffsetY,
+  const bounds = canvas.getBoundingClientRect();
+  if (canvas === mobile.canvas) {
+    const box = compositionRects(mobileSpec).photo;
+    return {
+      x: ((event.clientX - bounds.left) * mobileSpec.width / bounds.width - box.x) * frame.width / box.width,
+      y: ((event.clientY - bounds.top) * mobileSpec.height / bounds.height - box.y) * frame.height / box.height,
     };
-  } else if (photoPointers.size === 0) {
-    state.photoDrag = null;
-    pinchDistance = 0;
-    els.photoCanvas.classList.remove("moving");
   }
+  return { x: (event.clientX - bounds.left) * frame.width / bounds.width, y: (event.clientY - bounds.top) * frame.height / bounds.height };
 }
 
-els.photoCanvas.addEventListener("pointerup", finishPhotoDrag);
-els.photoCanvas.addEventListener("pointercancel", finishPhotoDrag);
-els.photoCanvas.addEventListener("wheel", (event) => {
-  if (!state.photo) return;
-  event.preventDefault();
-  const frame = getFrame();
-  const point = pixelPoint(event, els.photoCanvas, frame.width, frame.height);
-  setPhotoZoom(state.photoZoom * (event.deltaY < 0 ? 1.08 : 1 / 1.08), point);
-}, { passive: false });
+function setupPhotoGestures(canvas) {
+  const pointers = new Map();
+  let drag = null;
+  const midpoint = () => {
+    const [a, b] = [...pointers.values()];
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  };
+  const distance = () => {
+    const [a, b] = [...pointers.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+  const startDrag = (point) => ({ point, offsetX: state.photoOffsetX, offsetY: state.photoOffsetY });
 
-for (const button of document.querySelectorAll(".position-button")) {
-  button.addEventListener("click", () => {
-    state.position = button.dataset.position;
-    for (const peer of document.querySelectorAll(".position-button")) {
-      const active = peer === button;
-      peer.classList.toggle("active", active);
-      peer.setAttribute("aria-pressed", String(active));
+  canvas.addEventListener("pointerdown", (event) => {
+    if (!state.photo || event.button !== 0 || pointers.size >= 2) return;
+    if (canvas === mobile.canvas && pointers.size === 0 && mobileRoleAt(event) !== "photo") return;
+    event.preventDefault();
+    pointers.set(event.pointerId, photoPoint(event, canvas));
+    drag = pointers.size === 1 ? startDrag([...pointers.values()][0]) : null;
+    canvas.classList.add("moving");
+    canvas.setPointerCapture(event.pointerId);
+  });
+
+  canvas.addEventListener("pointermove", (event) => {
+    if (!pointers.has(event.pointerId)) return;
+    event.preventDefault();
+    const oldMid = pointers.size === 2 ? midpoint() : null;
+    const oldDistance = pointers.size === 2 ? distance() : 0;
+    const point = photoPoint(event, canvas);
+    pointers.set(event.pointerId, point);
+    if (pointers.size === 2) {
+      const nextMid = midpoint();
+      if (oldDistance > 0) setPhotoZoom(state.photoZoom * distance() / oldDistance, oldMid, false);
+      state.photoOffsetX += nextMid.x - oldMid.x;
+      state.photoOffsetY += nextMid.y - oldMid.y;
+    } else if (drag) {
+      state.photoOffsetX = drag.offsetX + point.x - drag.point.x;
+      state.photoOffsetY = drag.offsetY + point.y - drag.point.y;
     }
+    clampPhotoOffset();
+    renderPhoto();
     renderPreview();
   });
+
+  function finish(event) {
+    if (!pointers.has(event.pointerId)) return;
+    pointers.delete(event.pointerId);
+    if (canvas === mobile.canvas) lastMobilePhotoGesture = performance.now();
+    drag = pointers.size === 1 ? startDrag([...pointers.values()][0]) : null;
+    if (!pointers.size) canvas.classList.remove("moving");
+  }
+  canvas.addEventListener("pointerup", finish);
+  canvas.addEventListener("pointercancel", finish);
+  canvas.addEventListener("lostpointercapture", finish);
+  canvas.addEventListener("wheel", (event) => {
+    if (!state.photo || (canvas === mobile.canvas && mobileRoleAt(event) !== "photo")) return;
+    event.preventDefault();
+    setPhotoZoom(state.photoZoom * (event.deltaY < 0 ? 1.08 : 1 / 1.08), photoPoint(event, canvas));
+  }, { passive: false });
+}
+
+setupPhotoGestures(els.photoCanvas);
+setupPhotoGestures(mobile.canvas);
+
+function setPosition(position) {
+  state.position = position;
+  for (const button of document.querySelectorAll(".position-button")) {
+    const active = button.dataset.position === position;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+  renderPreview();
+}
+for (const button of document.querySelectorAll(".position-button")) {
+  button.addEventListener("click", () => setPosition(button.dataset.position));
 }
 
 els.outerBorder.addEventListener("input", () => {
@@ -441,8 +464,10 @@ function renderAnime() {
     els.cropMeta.textContent = "";
     return;
   }
+  if (mobileQuery.matches && !mobile.cropSheet.open) return;
   const maxWidth = Math.min(680, Math.max(200, els.animeDrop.clientWidth - 2));
-  const scale = Math.min(maxWidth / source.width, 4800 / source.height);
+  const maxHeight = mobileQuery.matches ? Math.max(1, els.animeDrop.clientHeight - 2) : 4800;
+  const scale = Math.min(maxWidth / source.width, maxHeight / source.height);
   const width = Math.max(1, Math.round(source.width * scale));
   const height = Math.max(1, Math.round(source.height * scale));
   const ctx = sizeCanvas(els.animeCanvas, width, height);
@@ -501,6 +526,7 @@ function renderPhoto() {
   els.photoMeta.textContent = source ? sourceMeta(source) : "尚未导入图片";
   if (!source || !frame) return;
   clampPhotoOffset();
+  if (mobileQuery.matches) return;
   const maxWidth = Math.min(680, Math.max(200, els.photoDrop.clientWidth - 2));
   const scale = Math.min(maxWidth / frame.width, 500 / frame.height);
   const width = Math.max(1, Math.round(frame.width * scale));
@@ -510,10 +536,11 @@ function renderPhoto() {
   drawPhoto(ctx, 0, 0, frame.width, frame.height);
 }
 
-function compositionSize() {
-  if (!state.anime || !state.photo || !state.crop || state.crop.w < 12 || state.crop.h < 12) return null;
-  const frameWidth = Math.max(1, Math.round(state.crop.w));
-  const frameHeight = Math.max(1, Math.round(state.crop.h));
+function compositionSize(allowIncomplete = false) {
+  if (!allowIncomplete && (!state.anime || !state.photo || !state.crop || state.crop.w < 12 || state.crop.h < 12)) return null;
+  const frame = getFrame() || { width: 1600, height: 900 };
+  const frameWidth = Math.max(1, Math.round(frame.width));
+  const frameHeight = Math.max(1, Math.round(frame.height));
   const outer = state.outerBorder;
   const divider = state.divider;
   const horizontal = state.position === "left" || state.position === "right";
@@ -524,18 +551,31 @@ function compositionSize() {
   };
 }
 
-function paintComposition(ctx, spec) {
+function compositionRects(spec) {
   const { frameWidth: w, frameHeight: h, outer: b, divider: d, horizontal } = spec;
+  const first = { x: b, y: b, width: w, height: h };
+  const second = { x: horizontal ? b + w + d : b, y: horizontal ? b : b + h + d, width: w, height: h };
+  const animeFirst = state.position === "left" || state.position === "top";
+  return { anime: animeFirst ? first : second, photo: animeFirst ? second : first };
+}
+
+function paintComposition(ctx, spec) {
+  const { frameWidth: w, frameHeight: h } = spec;
+  const { anime, photo } = compositionRects(spec);
   ctx.fillStyle = state.borderColor;
   ctx.fillRect(0, 0, spec.width, spec.height);
-  const first = { x: b, y: b };
-  const second = horizontal ? { x: b + w + d, y: b } : { x: b, y: b + h + d };
-  const animeFirst = state.position === "left" || state.position === "top";
-  const anime = animeFirst ? first : second;
-  const photo = animeFirst ? second : first;
   const c = state.crop;
-  ctx.drawImage(state.anime.image, c.x, c.y, c.w, c.h, anime.x, anime.y, w, h);
-  drawPhoto(ctx, photo.x, photo.y, w, h);
+  if (state.anime && c && c.w > 0 && c.h > 0) {
+    ctx.drawImage(state.anime.image, c.x, c.y, c.w, c.h, anime.x, anime.y, w, h);
+  } else {
+    ctx.fillStyle = "#e9efe7";
+    ctx.fillRect(anime.x, anime.y, w, h);
+  }
+  if (state.photo) drawPhoto(ctx, photo.x, photo.y, w, h);
+  else {
+    ctx.fillStyle = "#f5f7f2";
+    ctx.fillRect(photo.x, photo.y, w, h);
+  }
 }
 
 function renderPreview() {
@@ -546,7 +586,13 @@ function renderPreview() {
   els.exportPng.disabled = !spec;
   els.exportJpeg.disabled = !spec;
   els.shareJpeg.disabled = !spec;
+  mobile.export.disabled = !spec;
   els.exportSize.textContent = output ? `导出尺寸 ${output.width} × ${output.height} px` : "导入两张图片后显示";
+  mobile.outputSize.textContent = els.exportSize.textContent;
+  if (mobileQuery.matches) {
+    renderMobile();
+    return;
+  }
   if (!spec) return;
   const availableWidth = Math.max(180, els.previewCanvas.parentElement.clientWidth - 38);
   const scale = Math.min(2, availableWidth / spec.width, 420 / spec.height);
@@ -555,6 +601,43 @@ function renderPreview() {
   const ctx = sizeCanvas(els.previewCanvas, width, height);
   ctx.setTransform(els.previewCanvas.width / spec.width, 0, 0, els.previewCanvas.height / spec.height, 0, 0);
   paintComposition(ctx, spec);
+}
+
+function mobileRoleAt(event) {
+  if (!mobileSpec) return null;
+  const point = pixelPoint(event, mobile.canvas, mobileSpec.width, mobileSpec.height);
+  for (const [role, box] of Object.entries(compositionRects(mobileSpec))) {
+    if (point.x >= box.x && point.x <= box.x + box.width && point.y >= box.y && point.y <= box.y + box.height) return role;
+  }
+  return null;
+}
+
+function renderMobile() {
+  if (!mobileQuery.matches) return;
+  mobileSpec = compositionSize(true);
+  const scale = Math.min(mobile.stage.clientWidth / mobileSpec.width, Math.max(1, mobile.stage.clientHeight - 16) / mobileSpec.height);
+  const width = Math.max(1, Math.round(mobileSpec.width * scale));
+  const height = Math.max(1, Math.round(mobileSpec.height * scale));
+  mobile.board.style.width = `${width}px`;
+  mobile.board.style.height = `${height}px`;
+  const ctx = sizeCanvas(mobile.canvas, width, height);
+  ctx.setTransform(mobile.canvas.width / mobileSpec.width, 0, 0, mobile.canvas.height / mobileSpec.height, 0, 0);
+  paintComposition(ctx, mobileSpec);
+  for (const [role, button] of [["anime", mobile.animeEmpty], ["photo", mobile.photoEmpty]]) {
+    const box = compositionRects(mobileSpec)[role];
+    button.classList.toggle("hidden", !!state[role]);
+    button.style.left = `${box.x / mobileSpec.width * 100}%`;
+    button.style.top = `${box.y / mobileSpec.height * 100}%`;
+    button.style.width = `${box.width / mobileSpec.width * 100}%`;
+    button.style.height = `${box.height / mobileSpec.height * 100}%`;
+  }
+  const horizontal = mobileSpec.horizontal;
+  mobile.layoutLabel.textContent = horizontal ? "左右" : "上下";
+  mobile.layoutIcon.style.transform = horizontal ? "rotate(90deg)" : "none";
+  mobile.layout.setAttribute("aria-label", horizontal ? "切换为上下拼接" : "切换为左右拼接");
+  mobile.zoom.disabled = !state.photo;
+  mobile.resetPhoto.disabled = !state.photo;
+  mobile.hint.textContent = state.anime && state.photo ? "点动画图裁切 · 实景图单指移动、双指缩放" : state.anime ? "选择实景照片，开始对照取景" : state.photo ? "选择动画或漫画，作为对照画面" : "选两张图片，直接在这里对照取景";
 }
 
 function refreshAll() {
@@ -649,13 +732,80 @@ els.exportJpeg.addEventListener("click", () => exportImage("image/jpeg"));
 els.shareJpeg.addEventListener("click", () => exportImage("image/jpeg", true));
 els.exportSizeMode.addEventListener("change", renderPreview);
 
-if (window.matchMedia("(pointer: coarse) and (max-width: 700px)").matches) {
+function openSheet(sheet) {
+  if (!mobileQuery.matches) return;
+  for (const other of [mobile.cropSheet, mobile.settingsSheet, mobile.exportSheet]) {
+    if (other !== sheet && other.open) other.close();
+  }
+  if (!sheet.open) sheet.showModal();
+  requestAnimationFrame(refreshAll);
+}
+
+for (const button of document.querySelectorAll("[data-close-sheet]")) {
+  button.addEventListener("click", () => button.closest("dialog").close());
+}
+for (const sheet of [mobile.cropSheet, mobile.settingsSheet, mobile.exportSheet]) {
+  sheet.addEventListener("close", () => {
+    finishAnimeDrag();
+    setDrawMode(false);
+    refreshAll();
+  });
+  sheet.addEventListener("click", (event) => {
+    if (event.target !== sheet) return;
+    const bounds = sheet.getBoundingClientRect();
+    if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) sheet.close();
+  });
+}
+
+const panelMounts = [
+  { node: $("anime-card"), mount: $("crop-mount") },
+  { node: $("settings-card"), mount: $("settings-mount") },
+  { node: $("export-controls"), mount: $("export-mount") },
+];
+for (const panel of panelMounts) {
+  panel.home = document.createComment("panel home");
+  panel.node.before(panel.home);
+}
+function updateMobileLayout() {
+  for (const sheet of [mobile.cropSheet, mobile.settingsSheet, mobile.exportSheet]) {
+    if (sheet.open) sheet.close();
+  }
+  document.body.classList.toggle("mobile-layout", mobileQuery.matches);
+  for (const panel of panelMounts) {
+    if (mobileQuery.matches) panel.mount.append(panel.node);
+    else panel.home.after(panel.node);
+  }
+  refreshAll();
+}
+
+mobile.animeEmpty.addEventListener("click", () => els.animeInput.click());
+mobile.photoEmpty.addEventListener("click", () => els.photoInput.click());
+mobile.anime.addEventListener("click", () => state.anime ? openSheet(mobile.cropSheet) : els.animeInput.click());
+mobile.photo.addEventListener("click", () => els.photoInput.click());
+mobile.settings.addEventListener("click", () => openSheet(mobile.settingsSheet));
+mobile.export.addEventListener("click", () => openSheet(mobile.exportSheet));
+mobile.layout.addEventListener("click", () => {
+  const next = { top: "left", bottom: "right", left: "top", right: "bottom" }[state.position];
+  setPosition(next);
+});
+mobile.zoom.addEventListener("input", () => setPhotoZoom(Number(mobile.zoom.value)));
+mobile.resetPhoto.addEventListener("click", () => els.resetPhoto.click());
+mobile.canvas.addEventListener("click", (event) => {
+  if (performance.now() - lastMobilePhotoGesture < 350) return;
+  const role = mobileRoleAt(event);
+  if (role === "anime") {
+    if (state.anime) openSheet(mobile.cropSheet);
+    else els.animeInput.click();
+  } else if (role === "photo" && !state.photo) els.photoInput.click();
+});
+
+if (mobileQuery.matches) {
   els.exportSizeMode.value = "social";
 }
 if (navigator.share && navigator.canShare) els.shareJpeg.classList.remove("hidden");
 
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
-  navigator.serviceWorker.register("./sw.js").catch(() => {});
+  navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).catch(() => {});
 }
 
 let resizeTimer;
@@ -664,4 +814,9 @@ window.addEventListener("resize", () => {
   resizeTimer = setTimeout(refreshAll, 100);
 });
 
-refreshAll();
+mobileQuery.addEventListener("change", updateMobileLayout);
+new ResizeObserver(() => {
+  if (mobileQuery.matches) renderMobile();
+}).observe(mobile.stage);
+updateMobileLayout();
+setPosition(state.position);
