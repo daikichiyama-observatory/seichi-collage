@@ -4,7 +4,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#eef1ed">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <title>圣地巡礼拼图</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="icon-180.png">
     <link rel="stylesheet" href="style.css">
     <script src="app.js" defer></script>
   </head>
@@ -31,15 +36,15 @@
             </div>
             <div class="toolbar">
               <label class="button button-primary" for="anime-input">选择图片</label>
-              <input id="anime-input" class="visually-hidden" type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.tif,.tiff,image/jpeg,image/png,image/webp,image/heic,image/heif,image/tiff">
+              <input id="anime-input" class="visually-hidden" type="file" accept="image/*,.jpg,.jpeg,.png,.webp,.heic,.heif,.tif,.tiff">
               <button id="draw-crop" class="button" type="button" disabled>框选区域</button>
               <button id="reset-crop" class="button button-quiet" type="button" disabled>使用整图</button>
             </div>
             <div id="anime-drop" class="image-well image-well-anime" aria-label="动画或漫画图片放置区">
               <div id="anime-empty" class="empty-state">
                 <div class="empty-icon" aria-hidden="true">▧</div>
-                <strong>拖入动画截图或漫画图片</strong>
-                <span>也可以点击“选择图片”</span>
+                <strong>选择动画截图或漫画图片</strong>
+                <span>电脑上也可以直接拖入</span>
               </div>
               <canvas id="anime-canvas" class="edit-canvas hidden" aria-label="动画图片裁切区域"></canvas>
             </div>
@@ -52,19 +57,19 @@
               <div class="step">02</div>
               <div class="heading-copy">
                 <h2 id="photo-title">实景照片</h2>
-                <p>显示框会匹配左侧裁切区域</p>
+                <p>显示框会匹配动画图裁切区域</p>
               </div>
             </div>
             <div class="toolbar">
               <label class="button button-primary" for="photo-input">选择照片</label>
-              <input id="photo-input" class="visually-hidden" type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.tif,.tiff,image/jpeg,image/png,image/webp,image/heic,image/heif,image/tiff">
+              <input id="photo-input" class="visually-hidden" type="file" accept="image/*,.jpg,.jpeg,.png,.webp,.heic,.heif,.tif,.tiff">
               <button id="reset-photo" class="button button-quiet" type="button" disabled>重置取景</button>
             </div>
             <div id="photo-drop" class="image-well image-well-photo" aria-label="实景照片放置区">
               <div id="photo-empty" class="empty-state">
                 <div class="empty-icon" aria-hidden="true">▤</div>
-                <strong>拖入实景照片</strong>
-                <span>导入后拖动照片，滚轮缩放</span>
+                <strong>选择实景照片</strong>
+                <span>导入后拖动照片，双指或滑杆缩放</span>
               </div>
               <canvas id="photo-canvas" class="edit-canvas hidden" aria-label="实景照片取景区域"></canvas>
             </div>
@@ -123,7 +128,15 @@
                   <p id="export-size">导入两张图片后显示</p>
                 </div>
               </div>
+              <div class="export-options">
+                <label for="export-size-mode">导出大小</label>
+                <select id="export-size-mode">
+                  <option value="original">原始尺寸</option>
+                  <option value="social">适合分享</option>
+                </select>
+              </div>
               <div class="export-actions">
+                <button id="share-jpeg" class="button button-primary hidden" type="button" disabled>分享 JPEG</button>
                 <button id="export-png" class="button button-primary" type="button" disabled>导出 PNG</button>
                 <button id="export-jpeg" class="button" type="button" disabled>导出 JPEG</button>
               </div>

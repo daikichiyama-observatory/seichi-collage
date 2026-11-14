@@ -11,7 +11,8 @@ const els = {
   outerBorder: $("outer-border"), outerValue: $("outer-value"),
   divider: $("divider"), dividerValue: $("divider-value"), borderColor: $("border-color"),
   previewCanvas: $("preview-canvas"), previewEmpty: $("preview-empty"),
-  exportSize: $("export-size"), exportPng: $("export-png"), exportJpeg: $("export-jpeg"),
+  exportSize: $("export-size"), exportSizeMode: $("export-size-mode"),
+  exportPng: $("export-png"), exportJpeg: $("export-jpeg"), shareJpeg: $("share-jpeg"),
   status: $("status"),
 };
 
@@ -174,11 +175,12 @@ function pixelPoint(event, canvas, width, height) {
   };
 }
 
-function cornerAt(point) {
+function cornerAt(point, pointerType) {
   const crop = state.crop;
   const rect = els.animeCanvas.getBoundingClientRect();
-  const radiusX = 13 * state.anime.width / rect.width;
-  const radiusY = 13 * state.anime.height / rect.height;
+  const radius = pointerType === "touch" ? 25 : 13;
+  const radiusX = radius * state.anime.width / rect.width;
+  const radiusY = radius * state.anime.height / rect.height;
   const corners = [
     { name: "tl", x: crop.x, y: crop.y, anchor: { x: crop.x + crop.w, y: crop.y + crop.h } },
     { name: "tr", x: crop.x + crop.w, y: crop.y, anchor: { x: crop.x, y: crop.y + crop.h } },
@@ -206,7 +208,7 @@ els.animeCanvas.addEventListener("pointerdown", (event) => {
   if (!state.anime || event.button !== 0) return;
   event.preventDefault();
   const point = pixelPoint(event, els.animeCanvas, state.anime.width, state.anime.height);
-  const corner = state.drawMode ? null : cornerAt(point);
+  const corner = state.drawMode ? null : cornerAt(point, event.pointerType);
   const mode = state.drawMode ? "draw" : corner ? "resize" : insideCrop(point) ? "move" : "draw";
   state.animeDrag = {
     mode, start: point, original: { ...state.crop }, anchor: corner && corner.anchor,
@@ -309,20 +311,51 @@ els.resetPhoto.addEventListener("click", () => {
   renderPreview();
 });
 
+const photoPointers = new Map();
+let pinchDistance = 0;
+
+function pointerMidpoint() {
+  const [a, b] = [...photoPointers.values()];
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+function pointerDistance() {
+  const [a, b] = [...photoPointers.values()];
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
 els.photoCanvas.addEventListener("pointerdown", (event) => {
   if (!state.photo || event.button !== 0) return;
   event.preventDefault();
-  state.photoDrag = {
-    clientX: event.clientX, clientY: event.clientY,
-    offsetX: state.photoOffsetX, offsetY: state.photoOffsetY,
-  };
+  photoPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (photoPointers.size === 1) {
+    state.photoDrag = {
+      clientX: event.clientX, clientY: event.clientY,
+      offsetX: state.photoOffsetX, offsetY: state.photoOffsetY,
+    };
+  } else if (photoPointers.size === 2) {
+    state.photoDrag = null;
+    pinchDistance = pointerDistance();
+  }
   els.photoCanvas.classList.add("moving");
   els.photoCanvas.setPointerCapture(event.pointerId);
 });
 
 els.photoCanvas.addEventListener("pointermove", (event) => {
-  if (!state.photoDrag) return;
+  if (!photoPointers.has(event.pointerId)) return;
+  photoPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
   const frame = getFrame();
+  if (photoPointers.size === 2) {
+    const distance = pointerDistance();
+    if (pinchDistance > 0 && distance > 0) {
+      const midpoint = pointerMidpoint();
+      const focus = pixelPoint({ clientX: midpoint.x, clientY: midpoint.y }, els.photoCanvas, frame.width, frame.height);
+      setPhotoZoom(state.photoZoom * distance / pinchDistance, focus);
+    }
+    pinchDistance = distance;
+    return;
+  }
+  if (!state.photoDrag) return;
   const rect = els.photoCanvas.getBoundingClientRect();
   state.photoOffsetX = state.photoDrag.offsetX + (event.clientX - state.photoDrag.clientX) * frame.width / rect.width;
   state.photoOffsetY = state.photoDrag.offsetY + (event.clientY - state.photoDrag.clientY) * frame.height / rect.height;
@@ -331,9 +364,19 @@ els.photoCanvas.addEventListener("pointermove", (event) => {
   renderPreview();
 });
 
-function finishPhotoDrag() {
-  state.photoDrag = null;
-  els.photoCanvas.classList.remove("moving");
+function finishPhotoDrag(event) {
+  photoPointers.delete(event.pointerId);
+  if (photoPointers.size === 1) {
+    const pointer = [...photoPointers.values()][0];
+    state.photoDrag = {
+      clientX: pointer.x, clientY: pointer.y,
+      offsetX: state.photoOffsetX, offsetY: state.photoOffsetY,
+    };
+  } else if (photoPointers.size === 0) {
+    state.photoDrag = null;
+    pinchDistance = 0;
+    els.photoCanvas.classList.remove("moving");
+  }
 }
 
 els.photoCanvas.addEventListener("pointerup", finishPhotoDrag);
@@ -497,11 +540,13 @@ function paintComposition(ctx, spec) {
 
 function renderPreview() {
   const spec = compositionSize();
+  const output = spec && outputSize(spec);
   els.previewEmpty.classList.toggle("hidden", !!spec);
   els.previewCanvas.classList.toggle("hidden", !spec);
   els.exportPng.disabled = !spec;
   els.exportJpeg.disabled = !spec;
-  els.exportSize.textContent = spec ? `导出尺寸 ${spec.width} × ${spec.height} px` : "导入两张图片后显示";
+  els.shareJpeg.disabled = !spec;
+  els.exportSize.textContent = output ? `导出尺寸 ${output.width} × ${output.height} px` : "导入两张图片后显示";
   if (!spec) return;
   const availableWidth = Math.max(180, els.previewCanvas.parentElement.clientWidth - 38);
   const scale = Math.min(2, availableWidth / spec.width, 420 / spec.height);
@@ -535,35 +580,63 @@ function canvasBlob(canvas, type, quality) {
   });
 }
 
-async function exportImage(type) {
+function outputSize(spec) {
+  if (els.exportSizeMode.value === "original") return { width: spec.width, height: spec.height };
+  const scale = Math.min(1, 4096 / Math.max(spec.width, spec.height), Math.sqrt(12000000 / (spec.width * spec.height)));
+  return { width: Math.max(1, Math.round(spec.width * scale)), height: Math.max(1, Math.round(spec.height * scale)) };
+}
+
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+async function exportImage(type, share = false) {
   const spec = compositionSize();
   if (!spec) return;
-  if (spec.width > 16384 || spec.height > 16384 || spec.width * spec.height > 100000000) {
+  const output = outputSize(spec);
+  if (output.width > 16384 || output.height > 16384 || output.width * output.height > 100000000) {
     setStatus("导出尺寸超过浏览器可稳定处理的范围，请缩小动画裁切区域。", true);
     return;
   }
-  const button = type === "image/png" ? els.exportPng : els.exportJpeg;
+  const button = share ? els.shareJpeg : type === "image/png" ? els.exportPng : els.exportJpeg;
   button.disabled = true;
   setStatus("正在生成图片…");
   try {
     const canvas = document.createElement("canvas");
-    canvas.width = spec.width;
-    canvas.height = spec.height;
+    canvas.width = output.width;
+    canvas.height = output.height;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("当前浏览器无法创建导出画布");
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
+    ctx.scale(output.width / spec.width, output.height / spec.height);
     paintComposition(ctx, spec);
     const blob = await canvasBlob(canvas, type, type === "image/jpeg" ? 0.93 : undefined);
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = downloadName(type === "image/png" ? "png" : "jpg");
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-    setStatus(`已导出 ${spec.width} × ${spec.height} px 图片`);
+    const name = downloadName(type === "image/png" ? "png" : "jpg");
+    if (share && navigator.share && navigator.canShare) {
+      const file = new File([blob], name, { type });
+      if (navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file] });
+          setStatus(`已打开分享菜单：${output.width} × ${output.height} px`);
+          return;
+        } catch (error) {
+          if (error.name === "AbortError") {
+            setStatus("已取消分享");
+            return;
+          }
+        }
+      }
+    }
+    downloadBlob(blob, name);
+    setStatus(`已导出 ${output.width} × ${output.height} px 图片`);
   } catch (error) {
     setStatus(error.message || "图片导出失败", true);
   } finally {
@@ -573,6 +646,17 @@ async function exportImage(type) {
 
 els.exportPng.addEventListener("click", () => exportImage("image/png"));
 els.exportJpeg.addEventListener("click", () => exportImage("image/jpeg"));
+els.shareJpeg.addEventListener("click", () => exportImage("image/jpeg", true));
+els.exportSizeMode.addEventListener("change", renderPreview);
+
+if (window.matchMedia("(pointer: coarse) and (max-width: 700px)").matches) {
+  els.exportSizeMode.value = "social";
+}
+if (navigator.share && navigator.canShare) els.shareJpeg.classList.remove("hidden");
+
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  navigator.serviceWorker.register("./sw.js").catch(() => {});
+}
 
 let resizeTimer;
 window.addEventListener("resize", () => {
